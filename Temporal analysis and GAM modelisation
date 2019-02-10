@@ -1,0 +1,337 @@
+library(FactoMineR) 
+library(forecast) 
+library(ggplot2)
+library(factoextra)
+library(stringr)
+library(data.table)
+library(mgcv)
+library(dplyr)
+###install.packages('mgcv', dependencies=TRUE, repos='http://cran.rstudio.com/')
+###### 
+path="/Users/BATIONO/Documents/stageM2"
+setwd (path)
+#####################################################################
+#######################sarima modelisation ##########################
+#####################################################################
+TheData1 <- read.table("TheData_for_ts_passive.txt",header = TRUE)
+Inc_sum <- TheData1 %>% group_by(week,year) %>% summarise(sum = sum(cases))
+TheData2016= Inc_sum %>% filter(year == 2016)### 2016 data
+View(TheData2016)
+
+TheData2017<- subset(Inc_sum , year == 2017 & week < 36)#### 2017data
+TheData2016 <- TheData2016[-nrow(TheData2016),] ### 53rd week removal
+##########################time serie###################################
+ts_incidence=ts(TheData2016$sum,start=c(2016,1),end=c(2016,52),frequency = 52)
+ts_incidence2017=ts(TheData2017$sum,start=c(2017,1),end=c(2017,35),frequency = 52)
+
+boxplot(TheData2016$sum ~ TheData2016$week , xaxt="n" , xlab=""  , pch=20 , cex=0.3 , ylab="nb_cases",xlab="time" )
+plot(ts_incidence)
+plot(ts_incidence2017)
+
+sarima0=auto.arima(ts_incidence)
+summary(sarima0)
+############### autocorrelation checking ###########################
+pacf(sarima0$res,52,na.action=na.pass) 
+acf(sarima0$res,52,na.action=na.pass)
+Box.test(sarima0$res,lag=51,type="L")
+###################################################################
+
+################# stationnarisation and plot#########################
+spred=fitted(sarima0)
+plot.ts(cbind(ts_incidence,spred),lty=1:2,type="l",plot="single",col=c("red","blue"))
+legend("topleft", c("serie of incidences", "stationnary serie of incidences"), col=c("red", "blue"), lwd=c(1,3,1), lty=c(1,1,3))
+########################################################################
+
+################# PCA and stationnarisation on meteorological data############################
+
+dbase1<- read.csv("meteo_data.csv",header = T)
+dbase1=dbase1[-c(5:7,10,13:18)]
+#colnames(dbase1)[1:8]=c("date","max_temp","min_temp","wind_speed","precipitation","humidity_per","pressure","cloud_cov")
+dbase1$DATE <- as.Date(dbase1$DATE, format=c("%d/%m/%Y"))
+dbase1$YEAR<-str_sub(dbase1$DATE, 1, 4)
+for(i in 1:nrow(dbase1)){
+  dbase1$WEEK=strftime(dbase1$DATE, format = "%V")
+}
+for(i in 1:nrow(dbase1)){
+  if( dbase1$PRECIP_TOTAL_DAY_MM[i]==0){
+    dbase1$RAIN_EVENT[i]=0
+  }
+  else {dbase1$RAIN_EVENT[i]=1} 
+}
+dbase2016=dbase1[2343:2922,]
+dbase2017=dbase1[2648:3165,]
+############## meteorological data aggregation
+####### for dbase2016
+v1 <- aggregate( PRECIP_TOTAL_DAY_MM~ WEEK + YEAR, data = dbase2016, sum)
+v2 <- aggregate( MIN_TEMPERATURE_C ~ WEEK + YEAR, data = dbase2016, mean)
+v3 <- aggregate( MAX_TEMPERATURE_C ~ WEEK + YEAR, data = dbase2016, mean)
+v4 <- aggregate( WINDSPEED_MAX_KMH ~ WEEK + YEAR, data = dbase2016, mean)
+v5 <- aggregate( HUMIDITY_MAX_PERCENT ~ WEEK + YEAR, data = dbase2016, mean)
+v6 <- aggregate( PRESSURE_MAX_MB ~ WEEK + YEAR, data = dbase2016, mean)
+v7 <- aggregate( CLOUDCOVER_AVG_PERCENT ~ WEEK + YEAR, data = dbase2016, mean)
+v8 <- aggregate( RAIN_EVENT ~ WEEK + YEAR, data = dbase2016, sum)
+out1 <- merge(v1,v2, by=c("WEEK","YEAR"))
+out2<-merge(v3,v4, by=c("WEEK","YEAR"))
+out3<-merge(v5,v6, by=c("WEEK","YEAR"))
+out4<-merge(v7,v8, by=c("WEEK","YEAR"))
+out5 <- merge(out1, out2, by=c("WEEK","YEAR"))
+out6<- merge(out3, out4, by=c("WEEK","YEAR"))
+dbmeteo2016<-merge(out5, out6, by=c("WEEK","YEAR"))
+for(i in 1:nrow(dbmeteo2016)){
+  dbmeteo2016$TEMP_EXTEND[i]=(dbmeteo2016$MAX_TEMPERATURE_C[i]-dbmeteo2016$MIN_TEMPERATURE_C[i])
+}
+write.table(dbmeteo2016,file="dbmeteo2016.txt",row.names=FALSE,sep= "\t")
+
+####### for dbase2017
+v1 <- aggregate( PRECIP_TOTAL_DAY_MM~ WEEK + YEAR, data = dbase2017, sum)
+v2 <- aggregate( MIN_TEMPERATURE_C ~ WEEK + YEAR, data = dbase2017, mean)
+v3 <- aggregate( MAX_TEMPERATURE_C ~ WEEK + YEAR, data = dbase2017, mean)
+v4 <- aggregate( WINDSPEED_MAX_KMH ~ WEEK + YEAR, data = dbase2017, mean)
+v5 <- aggregate( HUMIDITY_MAX_PERCENT ~ WEEK + YEAR, data = dbase2017, mean)
+v6 <- aggregate( PRESSURE_MAX_MB ~ WEEK + YEAR, data = dbase2017, mean)
+v7 <- aggregate( CLOUDCOVER_AVG_PERCENT ~ WEEK + YEAR, data = dbase2017, mean)
+v8 <- aggregate( RAIN_EVENT ~ WEEK + YEAR, data = dbase2017, sum)
+out1 <- merge(v1,v2, by=c("WEEK","YEAR"))
+out2<-merge(v3,v4, by=c("WEEK","YEAR"))
+out3<-merge(v5,v6, by=c("WEEK","YEAR"))
+out4<-merge(v7,v8, by=c("WEEK","YEAR"))
+out5 <- merge(out1, out2, by=c("WEEK","YEAR"))
+out6<- merge(out3, out4, by=c("WEEK","YEAR"))
+dbmeteo2017<-merge(out5, out6, by=c("WEEK","YEAR"))
+for(i in 1:nrow(dbmeteo2017)){
+  dbmeteo2017$TEMP_EXTEND[i]=(dbmeteo2017$MAX_TEMPERATURE_C[i]-dbmeteo2017$MIN_TEMPERATURE_C[i])
+}
+write.table(dbmeteo2017,file="dbmeteo2017.txt",row.names=FALSE,sep= "\t")
+######################################################################
+
+          ####################PCA################################
+
+dbase2<- read.table("dbmeteo2016.txt",header = T)
+dbase3<- read.table("dbmeteo2017.txt",header = T)
+## Principal component analysis
+res.pca=PCA(dbase2[,3:11], scale.unit = TRUE, ncp = 5, graph = FALSE)
+var <- get_pca_var(res.pca)
+var
+## eigen value
+eig.val <- get_eigenvalue(res.pca)
+eig.val
+fviz_eig(res.pca, addlabels = TRUE, ylim = c(0, 50))
+
+##correlation circle
+fviz_pca_var(res.pca, col.var = "contrib",gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+
+## Representation quality
+
+library("corrplot")
+corrplot(var$contrib, is.corr=FALSE)
+
+## Variables contributions to principals components
+
+# Variables contributions to PC1
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 9) ### cloud cov, precipitation,rain event,max temp,humidity 
+# Variables contributions to PC2
+fviz_contrib(res.pca, choice = "var", axes = 2, top = 9)### temp extend, min temp, pressure,wind speed
+# Variables contributions to PC3
+fviz_contrib(res.pca, choice = "var", axes = 3, top = 9) ### temp extend, max temp & pressure
+
+axis1=res.pca$ind$coord[,1] ## cloud cov, precipitation,rain event,mas temp,humidity 
+axis2=res.pca$ind$coord[,2]## temp extend, min temp, pressure
+axis3=res.pca$ind$coord[,3] ## temp extend, max temp & pressure
+
+########################## sarima modelisation for meteorological data ####################################
+
+##### cloud cov, precipitation,rain event,mas temp,humidity for axis 1
+
+ts_axis1=ts(axis1,start=c(2015,23),end=c(2016,52),frequency=52)
+plot(ts_axis1)
+
+sarima1=auto.arima(ts_axis1)
+summary(sarima1)
+pacf(sarima1$res,52,na.action=na.pass) 
+acf(sarima1$res,52,na.action=na.pass)
+Box.test(sarima1$res,type="L")
+spred1=fitted(sarima1)
+plot.ts(cbind(ts_axis1,spred1),lty=1:2,type="l",plot="single",col=c("red","blue"))
+
+
+##### temp extend, min temp, pressure for axis 2
+
+
+ts_axis2=ts(axis2,start=c(2015,23),end=c(2016,52),frequency=52)
+plot(ts_axis2)
+
+sarima2=auto.arima(ts_axis2)
+
+pacf(sarima2$res,52,na.action=na.pass) 
+acf(sarima2$res,52,na.action=na.pass)
+Box.test(sarima2$res,type="L")
+
+spred2=fitted(sarima2)  
+plot.ts(cbind(ts_axis2,spred2),lty=1:2,type="l",plot="single",col=c("red","blue"))
+
+## temp extend, max temp & pressure for axis 3
+
+ts_axis3=ts(axis3,start=c(2015,23),end=c(2016,52),frequency=52)
+plot(ts_axis3)
+
+sarima3=auto.arima(ts_axis3)
+
+pacf(sarima3$res,52,na.action=na.pass) 
+acf(sarima3$res,52,na.action=na.pass)
+Box.test(sarima3$res,type="L")
+
+spred3=fitted(sarima3)  
+plot.ts(cbind(ts_axis3,spred3),lty=1:2,type="l",plot="single",col=c("red","blue"))
+
+###Incidence and weather offset: with stationnary series residues###
+
+## malaria incidence and axis 1
+
+c1=ccf(sarima0$res,sarima1$res,main="malaria incidence and  cloud cov, precipitation,rain event,max temp & humidity") 
+cbind(acf=c1$acf,lag=c1$lag) 
+
+### We've got an offset of 9 weeks between malaria incidence and axis 1
+
+## malaria incidence and axis 2
+
+c2=ccf(sarima0$res,sarima2$res,main="malaria incidence and temp extend, min temp, pressure")
+cbind(acf=c2$acf,lag=c2$lag) 
+
+### We've got an offset of 4 weeks between malaria incidence and axis 2
+
+## malaria incidence and axis 3
+
+c3=ccf(sarima0$res,sarima3$res,main="malaria incidence and temp extend, max temp & pressure")
+cbind(acf=c3$acf,lag=c3$lag) 
+
+### We've got an offset of 2 weeks between malaria incidence and axis 3
+
+#####GAM modelisation with the offsets
+pop=rep(7408,times=82)
+ts_incidence = c(rep(NA,30),ts_incidence)
+serie=cbind(ts_incidence,ts_axis1,ts_axis2,ts_axis3,pop)
+offset_axis1<-stats::lag(ts_axis1,-9)
+offset_axis2<-stats::lag(ts_axis2,-4)
+offset_axis3<-stats::lag(ts_axis3,-2)
+dbase_offset<-as.data.frame(cbind(offset_axis1,offset_axis2,offset_axis3,serie))
+
+
+colnames(dbase_offset)[1:4]=c("axis1","axis2","axis3","malaria_incidence")
+reg=gam(malaria_incidence~s(axis1)+s(axis2)+s(axis3)+offset(log(serie.pop)),data=dbase_offset,family=nb())
+summary(reg)
+plot(reg,pages=1)
+pred_gam=predict(reg,dbase_offset,type="response")
+pred_gam
+ts.plot(ts(pred_gam), ts(ts_incidence), col=1:2)
+legend("topright", c("Prediction by the GAM model", "Serie of incidences"), col=c("black", "red"), lwd=c(1,3,1), lty=c(1,1,3))
+### The prediction fits the malaria incidence.
+
+
+
+############################### prediction ########################
+### prediction of coordinates on principal components with 2017 meteorelogical data
+
+pred <- predict(res.pca, newdata=dbase3[,3:11])
+pred$coord
+axis1_2017=pred$coord[,1]
+axis2_2017=pred$coord[,2]
+axis3_2017=pred$coord[,3]
+
+ts_axis1_2017=ts(axis1_2017,start=c(2016,39),end=c(2017,22),frequency=52)
+ts_axis2_2017=ts(axis2_2017,start=c(2016,39),end=c(2017,22),frequency=52)
+ts_axis3_2017=ts(axis3_2017,start=c(2016,39),end=c(2017,22),frequency=52)
+
+
+pop=rep(7408,times=52)
+serie_2017=cbind(ts_incidence2017,ts_axis1_2017,ts_axis2_2017,ts_axis3_2017,pop)
+offset_axis1_2017<-stats::lag(ts_axis1_2017,-9)
+offset_axis2_2017<-stats::lag(ts_axis2_2017,-4)
+offset_axis3_2017<-stats::lag(ts_axis3_2017,-2)
+dbase_offset_2017<-as.data.frame(cbind(offset_axis1_2017,offset_axis2_2017,offset_axis3_2017))
+dbase_offset_2017$serie.pop = 7408
+colnames(dbase_offset_2017)[1:4]=c("axis1","axis2","axis3","serie.pop")
+
+
+#### tenir compte des données de 2016 pour le lag
+pred_gam_2017=predict(reg,dbase_offset_2017,type="response")
+pred_gam_2017
+
+################ comparison with 2017 incidences serie
+ts.plot(ts(pred_gam_2017), ts(ts_incidence2017), col=1:2)
+legend("topright", c("prediction by the GAM model", "serie of incidences"), col=c("black", "red"), lwd=c(1,3,1), lty=c(1,1,3))
+
+
+################ mixed effect modelisation
+
+install.packages('gamm4', dependencies=TRUE, repos='http://cran.rstudio.com/')
+library(gamm4)
+
+TheData1 <- read.table("TheData_for_ts_passive.txt",header = TRUE)
+Inc_sum_mixed_eff <- TheData1 %>% group_by(week,year,village) %>% summarise(sum = sum(cases))
+TheData2016_mixed_eff= Inc_sum_mixed_eff %>% filter(year == 2016)### 2016 data
+TheData2017_mixed_eff<- subset(Inc_sum_mixed_eff , year == 2017 & week < 36)#### 2017data
+
+TheData_for_mixed_eff = Inc_sum_mixed_eff 
+dta<- read.csv("passive_survey_data.csv",header = T)
+
+TheData_for_mixed_eff$health_facility=rep(NA,2470)
+
+for (i in 1:nrow(TheData_for_mixed_eff)) {
+  for(j in 1:nrow(dta)){
+    if(TheData_for_mixed_eff$village[i]==dta$codevillage[j])
+    {
+      TheData_for_mixed_eff$health_facility[i]<-dta$csps[j]
+      
+    }  
+    
+  }
+}
+TheData_for_mixed_eff$health_facility=as.factor(TheData_for_mixed_eff$health_facility)
+write.table(TheData_for_mixed_eff,file="TheData_for_mixed_eff.txt",row.names=FALSE,sep= "\t")
+
+TheData_for_mixed_eff <- read.table("TheData_for_mixed_eff.txt",header = TRUE)
+
+
+TheData2016_for_mixed_eff= TheData_for_mixed_eff  %>% filter(year == 2016)### 2016 data
+TheData2017_for_mixed_eff<- subset(TheData_for_mixed_eff , year == 2017 & week < 36)#### 2017data
+
+for (i in 1:53) {
+  for(j in 1:nrow(TheData2016_for_mixed_eff)){
+    if(i==TheData2016_for_mixed_eff$week[j])
+    {
+      TheData2016_for_mixed_eff$axis1[j]<-dbase_offset$serie.ts_axis1[i]
+      TheData2016_for_mixed_eff$axis2[j]<-dbase_offset$serie.ts_axis2[i]
+      TheData2016_for_mixed_eff$axis3[j]<-dbase_offset$serie.ts_axis3[i]
+      
+    }  
+    
+  }
+}
+
+reg_mix_eff=gamm4(sum~s(axis1)+s(axis2)+s(axis3),random=~(1|health_facility/village),data=TheData2016_for_mixed_eff,family = poisson(),drop.unused.levels=FALSE,REML = TRUE)
+summary(reg_mix_eff$gam)
+summary(reg_mix_eff$mer)#### interpretation?
+plot(reg_mix_eff$gam, pages=1)
+
+pred_gam_mixed_effect=predict(reg_mix_eff$gam,TheData2016_for_mixed_eff,type="response", se.fit = TRUE)
+
+ts.plot(ts(pred_gam_mixed_effect), ts(ts_incidence), col=1:2)
+legend("topright", c("Prediction by the GAM model", "Serie of incidences"), col=c("black", "red"), lwd=c(1,3,1), lty=c(1,1,3))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
